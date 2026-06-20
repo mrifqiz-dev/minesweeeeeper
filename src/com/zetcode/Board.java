@@ -30,7 +30,7 @@ import javax.swing.JPanel;
 import javax.swing.Timer;
 
 public class Board extends JPanel {
-
+    private boolean isFirstClick;
     private final int NUM_IMAGES = 13;
 
     private final int DRAW_MINE = 9;
@@ -237,6 +237,7 @@ public class Board extends JPanel {
 
     public void newGame() {
         inGame = true;
+        isFirstClick = true;
         minesLeft = difficulty.mines;
         timeElapsed = 0;
         gameTimer.stop();
@@ -275,17 +276,26 @@ public class Board extends JPanel {
         }
 
         updateStatusDisplay();
-        generateMines();
         repaint();
     }
 
-    private void generateMines() {
+    private void generateMines(int startRow, int startCol) {
         var random = new Random();
         int minesPlaced = 0;
 
         while (minesPlaced < difficulty.mines) {
             int r = random.nextInt(difficulty.rows);
             int c = random.nextInt(difficulty.cols);
+
+            boolean isSafeZone = false;
+            for (int i = startRow - 1; i <= startRow + 1; i++) {
+                for (int j = startCol - 1; j <= startCol + 1; j++) {
+                    if (r == i && c == j) {
+                        isSafeZone = true;
+                        break;
+                    }
+                }
+            }
 
             if (!grid[r][c].isMine()) {
                 grid[r][c].setMine(true);
@@ -668,6 +678,10 @@ public class Board extends JPanel {
                     updateStatusDisplay();
                 }
             } else if (e.getButton() == MouseEvent.BUTTON1) {
+                if (isFirstClick) {
+                    generateMines(r, c); // Buat bom SETELAH klik pertama diketahui
+                    isFirstClick = false;
+                }
                 if (mode == GameConfig.Mode.FANTASY && isScannerActive) applyScanner(r, c);
                 else revealCell(r, c);
             }
