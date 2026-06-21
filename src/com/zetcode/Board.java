@@ -24,10 +24,14 @@ import java.util.List;
 import java.util.Queue;
 import java.util.Random;
 import java.util.Set;
+import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
-import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTextField;
 import javax.swing.Timer;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.PlainDocument;
 
 public class Board extends JPanel {
     private boolean isFirstClick;
@@ -49,7 +53,7 @@ public class Board extends JPanel {
     private int timeElapsed;
     private Timer gameTimer;
     private Timer vfxTimer;
-    private final JLabel statusbar;
+    private final StatusPanel statusbar; // Menggunakan panel kustom berikon
 
     private int offsetX = 0;
     private int offsetY = 0;
@@ -77,11 +81,16 @@ public class Board extends JPanel {
     private boolean endGameWon = false;
     private boolean endGameFading = false;
     
-    // Leaderboard Input States
-    private boolean waitingForName = false;
-    private StringBuilder playerName = new StringBuilder();
+    enum EndGamePhase { NONE, CHOOSE_ACTION, PROMPT_SAVE, INPUT_NAME }
+    private EndGamePhase endPhase = EndGamePhase.NONE;
+    private boolean nextActionIsRestart = true;
+    private Runnable onExitToMenu;
 
-    public Board(JLabel statusbar) {
+    // Komponen UI Akhir Permainan
+    private FantasyButton btnRetry, btnExitMenu, btnYes, btnNo, btnSubmit;
+    private JTextField tfName;
+
+    public Board(StatusPanel statusbar) {
         this.statusbar = statusbar;
         this.difficulty = GameConfig.Difficulty.EASY;
         this.mode = GameConfig.Mode.FANTASY;
@@ -90,24 +99,66 @@ public class Board extends JPanel {
         initBoard();
     }
 
+    public void setOnExitToMenu(Runnable action) {
+        this.onExitToMenu = action;
+    }
+
     private void initBoard() {
         setFocusable(true);
         setBackground(new Color(15, 18, 22));
+        setLayout(null); // Memungkinkan penempatan UI Buttons secara absolut
+
+        // Inisialisasi UI Tombol Akhir Permainan
+        btnRetry = new FantasyButton("PLAY AGAIN");
+        btnExitMenu = new FantasyButton("EXIT TO MENU");
+        btnYes = new FantasyButton("YES");
+        btnNo = new FantasyButton("NO");
+        btnSubmit = new FantasyButton("SUBMIT RECORD");
+
+        tfName = new JTextField();
+        tfName.setBackground(new Color(20, 23, 28));
+        tfName.setForeground(new Color(100, 200, 255));
+        tfName.setFont(new Font("Consolas", Font.BOLD, 22));
+        tfName.setCaretColor(Color.WHITE);
+        tfName.setHorizontalAlignment(JTextField.CENTER);
+        tfName.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(100, 200, 255), 2),
+            BorderFactory.createEmptyBorder(5, 10, 5, 10)
+        ));
+        
+        // Batasi input nama maksimal 12 karakter untuk mencegah layout rusak
+        tfName.setDocument(new PlainDocument() {
+            @Override
+            public void insertString(int offs, String str, AttributeSet a) throws BadLocationException {
+                if (str == null) return;
+                if ((getLength() + str.length()) <= 12) super.insertString(offs, str, a);
+            }
+        });
+
+        add(btnRetry); add(btnExitMenu); add(btnYes); add(btnNo); add(tfName); add(btnSubmit);
+        hideAllUI();
+
+        // Routing Aksi Tombol
+        btnRetry.addActionListener(e -> { nextActionIsRestart = true; checkSavePhase(); });
+        btnExitMenu.addActionListener(e -> { nextActionIsRestart = false; checkSavePhase(); });
+        btnYes.addActionListener(e -> { endPhase = EndGamePhase.INPUT_NAME; updateUIState(); });
+        btnNo.addActionListener(e -> { executeNextAction(); });
+
+        java.awt.event.ActionListener submitAction = e -> {
+            String name = tfName.getText().trim();
+            if(name.length() > 0) {
+                ScoreManager.saveScore(mode, difficulty, name, timeElapsed);
+                executeNextAction();
+            }
+        };
+        btnSubmit.addActionListener(submitAction);
+        tfName.addActionListener(submitAction);
 
         img = new Image[NUM_IMAGES];
         for (int i = 0; i < NUM_IMAGES; i++) {
             var path = "/resources/" + i + ".png";
             java.net.URL imgUrl = getClass().getResource(path);
-
-            if (imgUrl != null) {
-                img[i] = new ImageIcon(imgUrl).getImage();
-            } else {
-                System.err.println("[ERROR] Asset not found at: " + path);
-                java.net.URL fallbackUrl = getClass().getResource("/" + i + ".png");
-                if (fallbackUrl != null) {
-                    img[i] = new ImageIcon(fallbackUrl).getImage();
-                }
-            }
+            if (imgUrl != null) img[i] = new ImageIcon(imgUrl).getImage();
         }
 
         initParticles();
@@ -116,6 +167,70 @@ public class Board extends JPanel {
         addMouseMotionListener(new HoverAdapter());
         addKeyListener(new FantasyKeyAdapter());
         newGame();
+    }
+
+    private void hideAllUI() {
+        btnRetry.setVisible(false);
+        btnExitMenu.setVisible(false);
+        btnYes.setVisible(false);
+        btnNo.setVisible(false);
+        tfName.setVisible(false);
+        btnSubmit.setVisible(false);
+    }
+
+    private void updateUIState() {
+        hideAllUI();
+        if (endPhase == EndGamePhase.CHOOSE_ACTION) {
+            btnRetry.setVisible(true);
+            btnExitMenu.setVisible(true);
+        } else if (endPhase == EndGamePhase.PROMPT_SAVE) {
+            btnYes.setVisible(true);
+            btnNo.setVisible(true);
+        } else if (endPhase == EndGamePhase.INPUT_NAME) {
+            tfName.setText("");
+            tfName.setVisible(true);
+            btnSubmit.setVisible(true);
+            tfName.requestFocusInWindow();
+        }
+    }
+
+    private void checkSavePhase() {
+        if (endGameWon) {
+            endPhase = EndGamePhase.PROMPT_SAVE;
+            updateUIState();
+        } else {
+            executeNextAction();
+        }
+    }
+
+    private void executeNextAction() {
+        endPhase = EndGamePhase.NONE;
+        hideAllUI();
+        if (nextActionIsRestart) {
+            newGame();
+            SoundManager.playBGM("game_bgm.wav");
+        } else {
+            if (onExitToMenu != null) onExitToMenu.run();
+        }
+    }
+
+    @Override
+    public void doLayout() {
+        super.doLayout();
+        if (btnRetry == null) return;
+        
+        int cx = getWidth() / 2;
+        int cy = getHeight() / 2;
+        
+        // Memosisikan komponen UI tepat di tengah hamparan popup kustom
+        btnRetry.setBounds(cx - 150, cy + 15, 300, 45);
+        btnExitMenu.setBounds(cx - 150, cy + 75, 300, 45);
+        
+        btnYes.setBounds(cx - 155, cy + 50, 140, 45);
+        btnNo.setBounds(cx + 15, cy + 50, 140, 45);
+        
+        tfName.setBounds(cx - 150, cy + 15, 300, 45);
+        btnSubmit.setBounds(cx - 150, cy + 75, 300, 45);
     }
 
     private void initParticles() {
@@ -128,8 +243,6 @@ public class Board extends JPanel {
         java.net.URL bgUrl = getClass().getResource("/resources/bg_fantasy.png");
         if (bgUrl != null) {
             bgImage = new ImageIcon(bgUrl).getImage();
-        } else {
-            System.err.println("[ERROR] Background image bg_fantasy.png not found!");
         }
     }
 
@@ -164,9 +277,7 @@ public class Board extends JPanel {
     private void updateParticles() {
         int w = Math.max(1, getWidth());
         int h = Math.max(1, getHeight());
-        for (BackgroundParticle p : bgParticles) {
-            p.update(w, h);
-        }
+        for (BackgroundParticle p : bgParticles) p.update(w, h);
     }
 
     private void updateShieldPulse() {
@@ -252,8 +363,10 @@ public class Board extends JPanel {
         floodScheduled.clear();
         endGameAlpha = 0f;
         endGameFading = false;
-        waitingForName = false;
-        playerName.setLength(0);
+        
+        endPhase = EndGamePhase.NONE;
+        hideAllUI();
+        SoundManager.stopVictorySound(); // Membunuh sisa gema suara Victory saat di-restart
 
         grid = new Cell[difficulty.rows][difficulty.cols];
         for (int r = 0; r < difficulty.rows; r++) {
@@ -297,7 +410,7 @@ public class Board extends JPanel {
                 }
             }
 
-            if (!grid[r][c].isMine()) {
+            if (!grid[r][c].isMine() && !isSafeZone) {
                 grid[r][c].setMine(true);
                 minesPlaced++;
             }
@@ -402,6 +515,7 @@ public class Board extends JPanel {
         if (mode == GameConfig.Mode.FANTASY && scannerCount > 0 && !isScannerActive && inGame) {
             isScannerActive = true;
             scannerCount--;
+            SoundManager.playSound("scanner.wav"); 
             updateStatusDisplay();
         }
     }
@@ -412,7 +526,6 @@ public class Board extends JPanel {
         activeEffects.add(new MagicEffect(centerX, centerY, scaledSize, type));
 
         if (type == MagicEffect.Type.EXPLOSION) SoundManager.playSound("explosion.wav");
-        else if (type == MagicEffect.Type.SCANNER) SoundManager.playSound("scanner.wav");
         else if (type == MagicEffect.Type.SHIELD_SHATTER) SoundManager.playSound("shield_break.wav");
         else if (type == MagicEffect.Type.FLAG_PLANT) SoundManager.playSound("flag.wav");
         else if (type == MagicEffect.Type.VICTORY) SoundManager.playSound("victory.wav");
@@ -440,33 +553,23 @@ public class Board extends JPanel {
         SoundManager.stopBGM(); 
         
         isShieldActive = false;
+        isScannerActive = false;
         endGameWon = won;
         endGameFading = true;
+        endPhase = EndGamePhase.CHOOSE_ACTION;
+        updateUIState();
 
         if (won) {
-            waitingForName = true;
             triggerVFX(difficulty.cols / 2,     difficulty.rows / 2,     MagicEffect.Type.VICTORY);
             triggerVFX(difficulty.cols / 4,     difficulty.rows / 4,     MagicEffect.Type.VICTORY);
             triggerVFX(difficulty.cols * 3 / 4, difficulty.rows / 4,     MagicEffect.Type.VICTORY);
             triggerVFX(difficulty.cols / 4,     difficulty.rows * 3 / 4, MagicEffect.Type.VICTORY);
             triggerVFX(difficulty.cols * 3 / 4, difficulty.rows * 3 / 4, MagicEffect.Type.VICTORY);
-            statusbar.setText("VICTORY! Completion Time: " + timeElapsed + " seconds.");
-        } else {
-            statusbar.setText("GAME OVER! Survival Time: " + timeElapsed + " seconds.");
         }
     }
 
     private void updateStatusDisplay() {
-        if (mode == GameConfig.Mode.FANTASY) {
-            String shieldStatus = isShieldActive ? "[SHIELD ACTIVE] " : (shieldCount > 0 ? "[S: Shield] " : "[Shield Used] ");
-            String scannerStatus = isScannerActive ? "[SCANNER READY] " : (scannerCount > 0 ? "[C: Scanner] " : "[Scanner Used] ");
-
-            statusbar.setText(String.format(" Mode: %s | Flag: %d | Time: %ds | %s%s",
-                    mode, minesLeft, timeElapsed, shieldStatus, scannerStatus));
-        } else {
-            statusbar.setText(String.format(" Mode: %s | Flag: %d | Time: %ds",
-                    mode, minesLeft, timeElapsed));
-        }
+        statusbar.updateStatus(mode, minesLeft, timeElapsed, isShieldActive, shieldCount, isScannerActive, scannerCount);
     }
 
     @Override
@@ -536,20 +639,45 @@ public class Board extends JPanel {
     private void drawHoverGlow(Graphics2D g2d) {
         if (!inGame || hoverRow < 0 || hoverCol < 0) return;
         if (!isValidCell(hoverRow, hoverCol)) return;
-        if (grid[hoverRow][hoverCol].isRevealed()) return;
+        
+        if (isScannerActive) {
+            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.2f));
+            g2d.setColor(new Color(255, 215, 0));
+            
+            for(int r = hoverRow - 1; r <= hoverRow + 1; r++) {
+                for(int c = hoverCol - 1; c <= hoverCol + 1; c++) {
+                    if(isValidCell(r, c) && !grid[r][c].isRevealed()) {
+                        int px = offsetX + (c * scaledSize);
+                        int py = offsetY + (r * scaledSize);
+                        g2d.fillRect(px, py, scaledSize, scaledSize);
+                    }
+                }
+            }
+            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.6f));
+            g2d.setStroke(new BasicStroke(2.0f));
+            for(int r = hoverRow - 1; r <= hoverRow + 1; r++) {
+                for(int c = hoverCol - 1; c <= hoverCol + 1; c++) {
+                    if(isValidCell(r, c) && !grid[r][c].isRevealed()) {
+                        int px = offsetX + (c * scaledSize);
+                        int py = offsetY + (r * scaledSize);
+                        g2d.drawRect(px, py, scaledSize, scaledSize);
+                    }
+                }
+            }
+        } else {
+            if (grid[hoverRow][hoverCol].isRevealed()) return;
+            int px = offsetX + (hoverCol * scaledSize);
+            int py = offsetY + (hoverRow * scaledSize);
 
-        int px = offsetX + (hoverCol * scaledSize);
-        int py = offsetY + (hoverRow * scaledSize);
+            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.18f));
+            g2d.setColor(new Color(100, 200, 255));
+            g2d.fillRect(px, py, scaledSize, scaledSize);
 
-        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.18f));
-        g2d.setColor(new Color(100, 200, 255));
-        g2d.fillRect(px, py, scaledSize, scaledSize);
-
-        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
-        g2d.setColor(new Color(180, 230, 255));
-        g2d.setStroke(new BasicStroke(1.5f));
-        g2d.drawRect(px, py, scaledSize, scaledSize);
-
+            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.5f));
+            g2d.setColor(new Color(180, 230, 255));
+            g2d.setStroke(new BasicStroke(1.5f));
+            g2d.drawRect(px, py, scaledSize, scaledSize);
+        }
         g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f));
     }
 
@@ -588,32 +716,26 @@ public class Board extends JPanel {
             
             g2d.setFont(new Font("Serif", Font.BOLD, 34));
             FontMetrics fm = g2d.getFontMetrics();
-            g2d.drawString(title, px + (panelW - fm.stringWidth(title))/2, py + 60);
+            g2d.drawString(title, px + (panelW - fm.stringWidth(title))/2, py + 70);
 
             g2d.setFont(new Font("Segoe UI", Font.PLAIN, 16));
             g2d.setColor(Color.LIGHT_GRAY);
             fm = g2d.getFontMetrics();
-            g2d.drawString(subtitle, px + (panelW - fm.stringWidth(subtitle))/2, py + 95);
+            g2d.drawString(subtitle, px + (panelW - fm.stringWidth(subtitle))/2, py + 105);
 
-            if (waitingForName) {
-                String inputStr = playerName.toString() + (System.currentTimeMillis() % 1000 < 500 ? "_" : "");
-                String prompt = "ENTER NAME: " + inputStr;
-                g2d.setFont(new Font("Consolas", Font.BOLD, 22));
+            if (endPhase == EndGamePhase.PROMPT_SAVE) {
+                String prompt = "Save your record to Hall of Fame?";
+                g2d.setFont(new Font("Consolas", Font.BOLD, 20));
                 g2d.setColor(new Color(100, 200, 255));
                 fm = g2d.getFontMetrics();
                 g2d.drawString(prompt, px + (panelW - fm.stringWidth(prompt))/2, py + 160);
-
-                String action = "[ Press ENTER to Save Score ]";
-                g2d.setFont(new Font("Consolas", Font.PLAIN, 14));
-                g2d.setColor(Color.GRAY);
+                
+            } else if (endPhase == EndGamePhase.INPUT_NAME) {
+                String prompt = "ENTER NAME:";
+                g2d.setFont(new Font("Consolas", Font.BOLD, 20));
+                g2d.setColor(new Color(100, 200, 255));
                 fm = g2d.getFontMetrics();
-                g2d.drawString(action, px + (panelW - fm.stringWidth(action))/2, py + 210);
-            } else {
-                String action = "[ Click Anywhere to Restart ]";
-                g2d.setFont(new Font("Consolas", Font.BOLD, 14));
-                g2d.setColor(new Color(224, 184, 114));
-                fm = g2d.getFontMetrics();
-                g2d.drawString(action, px + (panelW - fm.stringWidth(action))/2, py + 180);
+                g2d.drawString(prompt, px + (panelW - fm.stringWidth(prompt))/2, py + 140);
             }
         }
 
@@ -633,23 +755,15 @@ public class Board extends JPanel {
                 hoverCol = newCol;
             }
         }
-
         @Override
-        public void mouseDragged(MouseEvent e) {
-            mouseMoved(e);
-        }
+        public void mouseDragged(MouseEvent e) { mouseMoved(e); }
     }
 
     private class MinesAdapter extends MouseAdapter {
         @Override
         public void mousePressed(MouseEvent e) {
-            if (waitingForName) return; 
-
-            if (!inGame) {
-                newGame();
-                SoundManager.playBGM("game_bgm.wav"); 
-                return;
-            }
+            if (endPhase != EndGamePhase.NONE) return; 
+            if (!inGame) return;
 
             int relativeX = e.getX() - offsetX;
             int relativeY = e.getY() - offsetY;
@@ -679,7 +793,7 @@ public class Board extends JPanel {
                 }
             } else if (e.getButton() == MouseEvent.BUTTON1) {
                 if (isFirstClick) {
-                    generateMines(r, c); // Buat bom SETELAH klik pertama diketahui
+                    generateMines(r, c); 
                     isFirstClick = false;
                 }
                 if (mode == GameConfig.Mode.FANTASY && isScannerActive) applyScanner(r, c);
@@ -691,31 +805,10 @@ public class Board extends JPanel {
     private class FantasyKeyAdapter extends KeyAdapter {
         @Override
         public void keyPressed(KeyEvent e) {
-            if (waitingForName) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER && playerName.length() > 0) {
-                    waitingForName = false;
-                    ScoreManager.saveScore(mode, difficulty, playerName.toString(), timeElapsed);
-                } else if (e.getKeyCode() == KeyEvent.VK_BACK_SPACE && playerName.length() > 0) {
-                    playerName.deleteCharAt(playerName.length() - 1);
-                }
-                repaint();
-                return;
-            }
-
+            if (endPhase != EndGamePhase.NONE) return;
             int key = e.getKeyCode();
             if (key == KeyEvent.VK_S) activateShield();
             else if (key == KeyEvent.VK_C) activateScanner();
-        }
-
-        @Override
-        public void keyTyped(KeyEvent e) {
-            if (waitingForName) {
-                char c = e.getKeyChar();
-                if (c >= 32 && c <= 126 && c != ',' && playerName.length() < 12) { 
-                    playerName.append(c);
-                }
-                e.consume();
-            }
         }
     }
 }
@@ -755,7 +848,6 @@ class Cell {
     public void setFlagged(boolean flagged) { isFlagged = flagged; }
     public int getAdjacentMines() { return adjacentMines; }
     public void setAdjacentMines(int count) { this.adjacentMines = count; }
-    
     public void addNeighbor(Cell neighbor) { this.neighbors.add(neighbor); }
     public List<Cell> getNeighbors() { return neighbors; }
 }
@@ -773,12 +865,7 @@ class BackgroundParticle {
         this.size = rand.nextDouble() * 2.5 + 1.5;
         this.pulseAngle = (float) (rand.nextDouble() * Math.PI * 2);
         this.pulseSpeed = (float) (rand.nextDouble() * 0.04 + 0.02);
-
-        if (rand.nextBoolean()) {
-            this.color = new Color(224, 184, 114);
-        } else {
-            this.color = new Color(100, 200, 255);
-        }
+        this.color = rand.nextBoolean() ? new Color(224, 184, 114) : new Color(100, 200, 255);
     }
 
     public void update(int screenWidth, int screenHeight) {
@@ -893,12 +980,9 @@ class MagicEffect {
         } else if (type == Type.VICTORY) {
             this.maxRadius = cellSize * 3;
             Color[] victoryColors = {
-                    new Color(255, 215, 0),
-                    new Color(100, 255, 120),
-                    new Color(100, 200, 255),
-                    new Color(255, 100, 200),
-                    new Color(255, 120, 40),
-                    new Color(200, 150, 255)
+                    new Color(255, 215, 0), new Color(100, 255, 120),
+                    new Color(100, 200, 255), new Color(255, 100, 200),
+                    new Color(255, 120, 40), new Color(200, 150, 255)
             };
             for (int i = 0; i < 40; i++) {
                 double angle = rand.nextDouble() * Math.PI * 2;

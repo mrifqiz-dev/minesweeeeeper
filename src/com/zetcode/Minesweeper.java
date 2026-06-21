@@ -9,13 +9,13 @@ import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.Font;
-import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -34,18 +34,23 @@ import javax.sound.sampled.FloatControl;
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTable;
 import javax.swing.SwingConstants;
-import javax.swing.Timer;
+import javax.swing.plaf.basic.BasicScrollBarUI;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
 
 public class Minesweeper extends JFrame {
 
     private CardLayout cardLayout;
     private JPanel mainContainer;
     private Board board;
-    private JLabel statusbar;
+    private StatusPanel statusbar; 
     private FantasyButton btnContinue;
     private FantasyButton shieldBtn;
     private FantasyButton scannerBtn;
@@ -60,15 +65,13 @@ public class Minesweeper extends JFrame {
         cardLayout = new CardLayout();
         mainContainer = new JPanel(cardLayout);
 
-        statusbar = new JLabel(" Awaiting configuration...");
-        statusbar.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        statusbar.setBackground(new Color(15, 18, 22));
-        statusbar.setForeground(new Color(224, 184, 114));
-        statusbar.setOpaque(true);
-        statusbar.setPreferredSize(new Dimension(0, 35));
-        statusbar.setBorder(BorderFactory.createEmptyBorder(0, 10, 0, 0));
-
+        statusbar = new StatusPanel(); 
         board = new Board(statusbar);
+        
+        board.setOnExitToMenu(() -> {
+            cardLayout.show(mainContainer, "MENU");
+            SoundManager.playBGM("menu_bgm.wav");
+        });
 
         JPanel mainMenuPanel = createMainMenuPanel();
         JPanel difficultyPanel = createDifficultyPanel();
@@ -84,9 +87,14 @@ public class Minesweeper extends JFrame {
 
         setResizable(true);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
-        setTitle("Minesweeper - High Fantasy Edition");
+        setTitle("Minesweeper High Fantasy Edition");
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+
+        java.net.URL iconUrl = getClass().getResource("/resources/app_icon.png");
+        if (iconUrl != null) {
+            setIconImage(new ImageIcon(iconUrl).getImage());
+        }
 
         SoundManager.playBGM("menu_bgm.wav");
     }
@@ -210,12 +218,12 @@ public class Minesweeper extends JFrame {
         sideHUD.add(title, gbc);
 
         gbc.gridy++; gbc.insets = new Insets(8, 15, 8, 15);
-        shieldBtn = new FantasyButton("Aegis Barrier (S)");
+        shieldBtn = new FantasyButton("Aegis Barrier (S)", "shield_icon.png");
         shieldBtn.addActionListener(e -> { board.activateShield(); board.requestFocusInWindow(); });
         sideHUD.add(shieldBtn, gbc);
 
         gbc.gridy++;
-        scannerBtn = new FantasyButton("Divine Revelation (C)");
+        scannerBtn = new FantasyButton("Divine Revelation (C)", "eye_icon.png");
         scannerBtn.addActionListener(e -> { board.activateScanner(); board.requestFocusInWindow(); });
         sideHUD.add(scannerBtn, gbc);
 
@@ -252,7 +260,6 @@ public class Minesweeper extends JFrame {
         titleLabel.setForeground(new Color(224, 184, 114));
         panel.add(titleLabel, gbc);
 
-        // Filters
         gbc.gridy++; gbc.gridwidth = 1; gbc.insets = new Insets(5, 5, 20, 5);
         
         GameConfig.Mode[] currentMode = { GameConfig.Mode.FANTASY };
@@ -312,56 +319,167 @@ public class Minesweeper extends JFrame {
     }
 }
 
+// -----------------------------------------------------------
+// Komponen Status UI Bawah (Ikon)
+// -----------------------------------------------------------
+class StatusPanel extends JPanel {
+    private JLabel lblFlags, lblTime, lblShield, lblScanner;
+
+    public StatusPanel() {
+        setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.CENTER, 35, 8));
+        setBackground(new Color(15, 18, 22));
+        setPreferredSize(new Dimension(0, 45));
+        setBorder(BorderFactory.createMatteBorder(2, 0, 0, 0, new Color(40, 45, 55)));
+
+        lblFlags = createIconLabel("11.png", " 0");
+        lblTime = createIconLabel(null, " 00:00"); 
+        lblShield = createIconLabel("shield_icon.png", " Ready");
+        lblScanner = createIconLabel("eye_icon.png", " Ready");
+
+        add(lblFlags); add(lblTime); add(lblShield); add(lblScanner);
+    }
+
+    private JLabel createIconLabel(String iconName, String text) {
+        JLabel lbl = new JLabel(text);
+        lbl.setFont(new Font("Consolas", Font.BOLD, 16));
+        lbl.setForeground(new Color(224, 184, 114));
+        if (iconName != null) {
+            try {
+                java.net.URL url = getClass().getResource("/resources/" + iconName);
+                if (url != null) {
+                    Image img = new ImageIcon(url).getImage().getScaledInstance(24, 24, Image.SCALE_SMOOTH);
+                    lbl.setIcon(new ImageIcon(img));
+                }
+            } catch (Exception e) {}
+        }
+        return lbl;
+    }
+
+    public void updateStatus(GameConfig.Mode mode, int flags, int time, boolean sActive, int sCount, boolean cActive, int cCount) {
+        lblFlags.setText(" " + flags);
+        lblTime.setText(String.format(" %02d:%02d", time / 60, time % 60));
+
+        if (mode == GameConfig.Mode.FANTASY) {
+            lblShield.setVisible(true);
+            lblScanner.setVisible(true);
+            
+            if (sActive) { lblShield.setText(" ACTIVE"); lblShield.setForeground(new Color(100, 200, 255)); }
+            else if (sCount > 0) { lblShield.setText(" READY"); lblShield.setForeground(new Color(100, 255, 150)); }
+            else { lblShield.setText(" USED"); lblShield.setForeground(Color.DARK_GRAY); }
+
+            if (cActive) { lblScanner.setText(" ACTIVE"); lblScanner.setForeground(new Color(100, 200, 255)); }
+            else if (cCount > 0) { lblScanner.setText(" READY"); lblScanner.setForeground(new Color(100, 255, 150)); }
+            else { lblScanner.setText(" USED"); lblScanner.setForeground(Color.DARK_GRAY); }
+        } else {
+            lblShield.setVisible(false);
+            lblScanner.setVisible(false);
+        }
+    }
+}
+
+// -----------------------------------------------------------
+// Modifikasi JScrollPane Kustom (Arcane Theme)
+// -----------------------------------------------------------
+class FantasyScrollBarUI extends BasicScrollBarUI {
+    private final Dimension emptyDim = new Dimension(0, 0);
+
+    // Hapus panah atas dan bawah secara brutal (dimensi 0)
+    @Override
+    protected JButton createDecreaseButton(int orientation) {
+        return new JButton() { @Override public Dimension getPreferredSize() { return emptyDim; } };
+    }
+
+    @Override
+    protected JButton createIncreaseButton(int orientation) {
+        return new JButton() { @Override public Dimension getPreferredSize() { return emptyDim; } };
+    }
+
+    // Ubah latar belakang jalur scroll menjadi sangat gelap (menyatu dengan background)
+    @Override
+    protected void paintTrack(Graphics g, JComponent c, Rectangle trackBounds) {
+        g.setColor(new Color(15, 18, 22)); 
+        g.fillRect(trackBounds.x, trackBounds.y, trackBounds.width, trackBounds.height);
+    }
+
+    // Lukis pegangan scroll menjadi pil Cyan yang bercahaya saat disentuh
+    @Override
+    protected void paintThumb(Graphics g, JComponent c, Rectangle thumbBounds) {
+        if (thumbBounds.isEmpty() || !scrollbar.isEnabled()) return;
+
+        Graphics2D g2d = (Graphics2D) g.create();
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        if (isThumbRollover()) g2d.setColor(new Color(180, 230, 255)); // Hover
+        else g2d.setColor(new Color(100, 200, 255)); // Normal
+
+        // Membuat efek pil (rounded border) dengan margin 2 piksel di sisi kiri dan kanan
+        g2d.fillRoundRect(thumbBounds.x + 2, thumbBounds.y + 2, thumbBounds.width - 4, thumbBounds.height - 4, 8, 8);
+        g2d.dispose();
+    }
+}
+
 class LeaderboardDisplay extends JPanel {
-    private GameConfig.Mode mode;
-    private GameConfig.Difficulty diff;
+    private JTable table;
+    private DefaultTableModel model;
+    private GameConfig.Mode currentMode;
+    private GameConfig.Difficulty currentDiff;
     
     public LeaderboardDisplay(GameConfig.Mode mode, GameConfig.Difficulty diff) {
-         this.mode = mode; this.diff = diff;
-         setOpaque(false);
-         setPreferredSize(new Dimension(420, 250));
+        this.currentMode = mode; this.currentDiff = diff;
+        setLayout(new BorderLayout());
+        setOpaque(false);
+        setPreferredSize(new Dimension(500, 300));
+
+        model = new DefaultTableModel(new String[]{"RANK", "PLAYER NAME", "TIME"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+        };
+        table = new JTable(model);
+        table.setOpaque(true);
+        table.setBackground(new Color(20, 23, 28));
+        table.setForeground(new Color(224, 184, 114));
+        table.setFont(new Font("Consolas", Font.BOLD, 16));
+        table.setRowHeight(35);
+        table.setShowGrid(false);
+        table.setIntercellSpacing(new Dimension(0, 0));
+        
+        table.getTableHeader().setOpaque(false);
+        table.getTableHeader().setBackground(new Color(15, 18, 22));
+        table.getTableHeader().setForeground(new Color(100, 200, 255));
+        table.getTableHeader().setFont(new Font("Consolas", Font.BOLD, 18));
+        table.getTableHeader().setBorder(BorderFactory.createMatteBorder(0, 0, 2, 0, new Color(100, 200, 255)));
+
+        DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
+        centerRenderer.setHorizontalAlignment(JLabel.CENTER);
+        centerRenderer.setOpaque(false);
+        table.setDefaultRenderer(Object.class, centerRenderer);
+
+        JScrollPane scroll = new JScrollPane(table);
+        scroll.setOpaque(false);
+        scroll.getViewport().setBackground(new Color(20, 23, 28));
+        scroll.setBorder(BorderFactory.createLineBorder(new Color(100, 200, 255), 1));
+        
+        // --- INJEKSI SCROLLBAR KUSTOM ---
+        scroll.getVerticalScrollBar().setUI(new FantasyScrollBarUI());
+        scroll.getVerticalScrollBar().setPreferredSize(new Dimension(10, 0)); // Ketebalan 10 pixel
+        
+        add(scroll, BorderLayout.CENTER);
+        loadData();
     }
     
     public void updateFilters(GameConfig.Mode mode, GameConfig.Difficulty diff) {
-         this.mode = mode; this.diff = diff;
-         repaint();
+        this.currentMode = mode; this.currentDiff = diff;
+        loadData();
     }
     
-    @Override
-    protected void paintComponent(Graphics g) {
-         super.paintComponent(g);
-         Graphics2D g2d = (Graphics2D) g;
-         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-         
-         g2d.setColor(new Color(20, 23, 28, 200));
-         g2d.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
-         g2d.setColor(new Color(100, 200, 255));
-         g2d.setStroke(new BasicStroke(1.5f));
-         g2d.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 15, 15);
-
-         List<PlayerRecord> records = ScoreManager.getScores(mode, diff);
-         
-         if (records.isEmpty()) {
-             g2d.setFont(new Font("Consolas", Font.ITALIC, 16));
-             g2d.setColor(Color.GRAY);
-             String msg = "No records found for this category.";
-             FontMetrics fm = g2d.getFontMetrics();
-             g2d.drawString(msg, (getWidth() - fm.stringWidth(msg))/2, getHeight()/2);
-             return;
-         }
-         
-         g2d.setFont(new Font("Consolas", Font.BOLD, 20));
-         int y = 45;
-         for (int i = 0; i < Math.min(5, records.size()); i++) {
-             PlayerRecord r = records.get(i);
-             g2d.setColor(i == 0 ? new Color(255, 215, 0) : new Color(224, 184, 114));
-             g2d.drawString(String.format("%d.", i + 1), 40, y);
-             g2d.setColor(Color.LIGHT_GRAY);
-             g2d.drawString(String.format("%-14s", r.name), 90, y);
-             g2d.setColor(new Color(100, 255, 150));
-             g2d.drawString(String.format("%d s", r.time), 300, y);
-             y += 40;
-         }
+    private void loadData() {
+        model.setRowCount(0);
+        List<PlayerRecord> records = ScoreManager.getScores(currentMode, currentDiff);
+        for (int i = 0; i < records.size(); i++) {
+            PlayerRecord r = records.get(i);
+            String timeStr = String.format("%02d:%02d", r.time / 60, r.time % 60);
+            model.addRow(new Object[]{i + 1, r.name, timeStr});
+        }
     }
 }
 
@@ -369,7 +487,7 @@ class MenuParticlePanel extends JPanel {
 
     private final List<MenuParticle> particles = new ArrayList<>();
     private final List<MenuOrb> orbs = new ArrayList<>();
-    private final Timer animTimer;
+    private final javax.swing.Timer animTimer;
     private float titleGlowAngle = 0f;
     private Image bgImage;
 
@@ -392,7 +510,7 @@ class MenuParticlePanel extends JPanel {
             orbs.add(new MenuOrb(rand.nextInt(1600) + 100, rand.nextInt(900) + 100, rand));
         }
 
-        animTimer = new Timer(16, e -> {
+        animTimer = new javax.swing.Timer(16, e -> {
             updateAll();
             repaint();
         });
@@ -528,6 +646,10 @@ class FantasyButton extends JButton {
     private final Color textColor = new Color(224, 184, 114);
 
     public FantasyButton(String text) {
+        this(text, null);
+    }
+
+    public FantasyButton(String text, String iconName) {
         super(text);
         setFont(new Font("Segoe UI", Font.BOLD, 15));
         setForeground(textColor);
@@ -541,6 +663,20 @@ class FantasyButton extends JButton {
                 BorderFactory.createLineBorder(textColor, 1),
                 BorderFactory.createEmptyBorder(5, 15, 5, 15)
         ));
+
+        if (iconName != null) {
+            try {
+                java.net.URL url = getClass().getResource("/resources/" + iconName);
+                if (url != null) {
+                    Image img = new ImageIcon(url).getImage().getScaledInstance(35, 35, Image.SCALE_SMOOTH);
+                    setIcon(new ImageIcon(img));
+                    setIconTextGap(15);
+                    setHorizontalAlignment(SwingConstants.LEFT);
+                }
+            } catch (Exception e) {
+                System.err.println("[UI ERROR] Gagal memuat ikon: " + iconName);
+            }
+        }
 
         addMouseListener(new MouseAdapter() {
             @Override
@@ -641,6 +777,7 @@ class PlayerRecord {
 
 class SoundManager {
     private static Clip bgmClip;
+    private static Clip victoryClip; 
     private static long lastRevealTime = 0;
 
     public static void playSound(String fileName) {
@@ -672,6 +809,11 @@ class SoundManager {
                 if (volumeOffset < min) volumeOffset = min;
                 gainControl.setValue(volumeOffset);
             }
+            
+            if (fileName.equals("victory.wav")) {
+                if (victoryClip != null && victoryClip.isRunning()) victoryClip.stop();
+                victoryClip = clip;
+            }
 
             clip.start();
         } catch (javax.sound.sampled.UnsupportedAudioFileException e) {
@@ -684,7 +826,7 @@ class SoundManager {
     public static void playRevealSound() {
         long now = System.currentTimeMillis();
         if (now - lastRevealTime > 60) {
-            playSound("reveal.wav", 6.0f);
+            playSound("reveal.wav", 8.0f);
             lastRevealTime = now;
         }
     }
@@ -718,6 +860,12 @@ class SoundManager {
     public static void stopBGM() {
         if (bgmClip != null && bgmClip.isRunning()) {
             bgmClip.stop();
+        }
+    }
+    
+    public static void stopVictorySound() {
+        if (victoryClip != null && victoryClip.isRunning()) {
+            victoryClip.stop();
         }
     }
 }
