@@ -1,7 +1,6 @@
 package com.zetcode;
 
 import java.awt.AlphaComposite;
-import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Color;
@@ -39,9 +38,11 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JSlider;
 import javax.swing.JTable;
 import javax.swing.SwingConstants;
 import javax.swing.plaf.basic.BasicScrollBarUI;
+import javax.swing.plaf.basic.BasicSliderUI;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 
@@ -56,19 +57,27 @@ public class Minesweeper extends JFrame {
     private FantasyButton scannerBtn;
 
     private GameConfig.Mode pendingMode = GameConfig.Mode.FANTASY;
+    private boolean isExclusiveFullscreen = true;
 
     public Minesweeper() {
         initUI();
     }
 
     private void initUI() {
+        setBackground(new Color(15, 18, 22));
+        getContentPane().setBackground(new Color(15, 18, 22)); 
+        
         cardLayout = new CardLayout();
         mainContainer = new JPanel(cardLayout);
+        mainContainer.setBackground(new Color(15, 18, 22)); 
 
         statusbar = new StatusPanel(); 
         board = new Board(statusbar);
         
         board.setOnExitToMenu(() -> {
+            SoundManager.stopVictorySound();
+            SoundManager.stopDefeatSound();
+            btnContinue.setEnabled(false); 
             cardLayout.show(mainContainer, "MENU");
             SoundManager.playBGM("menu_bgm.wav");
         });
@@ -77,26 +86,51 @@ public class Minesweeper extends JFrame {
         JPanel difficultyPanel = createDifficultyPanel();
         JPanel gamePanel = createGamePanel();
         JPanel leaderboardPanel = createLeaderboardPanel();
+        JPanel settingsPanel = createSettingsPanel();
 
         mainContainer.add(mainMenuPanel, "MENU");
         mainContainer.add(difficultyPanel, "DIFFICULTY");
         mainContainer.add(gamePanel, "GAME");
         mainContainer.add(leaderboardPanel, "LEADERBOARD");
+        mainContainer.add(settingsPanel, "SETTINGS");
 
         add(mainContainer);
 
-        setResizable(true);
-        setExtendedState(JFrame.MAXIMIZED_BOTH);
-        setTitle("Minesweeper High Fantasy Edition");
-        setLocationRelativeTo(null);
+        setTitle("Arcane Sweeper");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setMinimumSize(new Dimension(960, 720)); 
 
         java.net.URL iconUrl = getClass().getResource("/resources/app_icon.png");
         if (iconUrl != null) {
             setIconImage(new ImageIcon(iconUrl).getImage());
         }
 
+        applyDisplayMode();
         SoundManager.playBGM("menu_bgm.wav");
+    }
+
+private void applyDisplayMode() {
+        javax.swing.JWindow curtain = new javax.swing.JWindow();
+        curtain.getContentPane().setBackground(new Color(15, 18, 22));
+        curtain.setBounds(getGraphicsConfiguration().getBounds());
+        curtain.setVisible(true);
+
+        dispose(); 
+        
+        setUndecorated(isExclusiveFullscreen);
+        setResizable(!isExclusiveFullscreen);
+        
+        if (!isExclusiveFullscreen) {
+            setSize(1280, 720); 
+            setLocationRelativeTo(null);
+        }
+        
+        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        setVisible(true);
+
+        javax.swing.Timer timer = new javax.swing.Timer(50, e -> curtain.dispose());
+        timer.setRepeats(false);
+        timer.start();
     }
 
     private JPanel createMainMenuPanel() {
@@ -104,13 +138,13 @@ public class Minesweeper extends JFrame {
         panel.setLayout(new GridBagLayout());
 
         GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0; gbc.gridy = 0; gbc.insets = new Insets(10, 10, 40, 10);
+        gbc.gridx = 0; gbc.gridy = 0; gbc.insets = new Insets(8, 10, 30, 10);
 
-        JLabel titleLabel = new JLabel("MINESWEEPER");
+        JLabel titleLabel = new JLabel("ARCANE SWEEPER");
         titleLabel.setFont(new Font("Serif", Font.BOLD, 55));
         titleLabel.setForeground(new Color(224, 184, 114));
 
-        JLabel subtitleLabel = new JLabel("ARCANE REALM");
+        JLabel subtitleLabel = new JLabel("Revelations of the Enchanted Mines");
         subtitleLabel.setFont(new Font("Serif", Font.ITALIC, 24));
         subtitleLabel.setForeground(Color.LIGHT_GRAY);
 
@@ -122,7 +156,7 @@ public class Minesweeper extends JFrame {
 
         panel.add(titlePanel, gbc);
 
-        gbc.gridy++; gbc.insets = new Insets(10, 10, 15, 10);
+        gbc.gridy++; gbc.insets = new Insets(8, 10, 8, 10);
         FantasyButton btnNewGame = new FantasyButton("ENTER DUNGEON");
         btnNewGame.addActionListener(e -> cardLayout.show(mainContainer, "DIFFICULTY"));
         panel.add(btnNewGame, gbc);
@@ -132,12 +166,10 @@ public class Minesweeper extends JFrame {
         btnContinue.setEnabled(false);
         btnContinue.addActionListener(e -> {
             board.resumeGame();
-
             boolean isFantasy = (board.getGameMode() == GameConfig.Mode.FANTASY);
             shieldBtn.setVisible(isFantasy);
             scannerBtn.setVisible(isFantasy);
-
-            SoundManager.playBGM("game_bgm.wav");
+            if (board.isInGame()) SoundManager.playBGM("game_bgm.wav");
             cardLayout.show(mainContainer, "GAME");
             board.requestFocusInWindow();
         });
@@ -149,11 +181,129 @@ public class Minesweeper extends JFrame {
         panel.add(btnLeaderboard, gbc);
 
         gbc.gridy++;
+        FantasyButton btnSettings = new FantasyButton("ARCANE SETTINGS");
+        btnSettings.addActionListener(e -> cardLayout.show(mainContainer, "SETTINGS"));
+        panel.add(btnSettings, gbc);
+
+        gbc.gridy++; gbc.insets = new Insets(8, 10, 20, 10);
         FantasyButton btnExit = new FantasyButton("ABANDON QUEST");
         btnExit.addActionListener(e -> System.exit(0));
         panel.add(btnExit, gbc);
 
         return panel;
+    }
+
+    private JPanel createSettingsPanel() {
+        MenuParticlePanel panel = new MenuParticlePanel();
+        panel.setLayout(new GridBagLayout());
+
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL; 
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2; gbc.insets = new Insets(10, 0, 40, 0);
+
+        JLabel titleLabel = new JLabel("ARCANE CONFIGURATION");
+        titleLabel.setFont(new Font("Serif", Font.BOLD, 36));
+        titleLabel.setForeground(new Color(224, 184, 114));
+        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        panel.add(titleLabel, gbc);
+
+        gbc.gridy++; gbc.insets = new Insets(0, 0, 20, 0);
+        FantasyButton btnDisplay = new FantasyButton(isExclusiveFullscreen ? "DISPLAY: BORDERLESS" : "DISPLAY: WINDOWED");
+        
+        btnDisplay.setPreferredSize(new Dimension(430, 50));
+        
+        btnDisplay.addActionListener(e -> {
+            isExclusiveFullscreen = !isExclusiveFullscreen;
+            btnDisplay.setText(isExclusiveFullscreen ? "DISPLAY: BORDERLESS" : "DISPLAY: WINDOWED");
+            applyDisplayMode();
+        });
+        panel.add(btnDisplay, gbc);
+
+        gbc.gridy++; gbc.gridwidth = 1; gbc.gridx = 0; 
+        gbc.insets = new Insets(10, 0, 10, 15);
+        FantasyButton btnToggleBgm = new FantasyButton("MUSIC: ON");
+        btnToggleBgm.setPreferredSize(new Dimension(200, 50));
+        btnToggleBgm.addActionListener(e -> {
+            SoundManager.bgmMuted = !SoundManager.bgmMuted;
+            btnToggleBgm.setText(SoundManager.bgmMuted ? "MUSIC: MUTED" : "MUSIC: ON");
+            btnToggleBgm.setForeground(SoundManager.bgmMuted ? Color.GRAY : new Color(224, 184, 114));
+            SoundManager.updateBGMVolume();
+        });
+        panel.add(btnToggleBgm, gbc);
+
+        gbc.gridx = 1; 
+        gbc.insets = new Insets(10, 15, 10, 0);
+        JSlider bgmSlider = createFantasySlider(SoundManager.bgmVolume);
+        bgmSlider.addChangeListener(e -> {
+            SoundManager.bgmVolume = bgmSlider.getValue();
+            SoundManager.updateBGMVolume();
+        });
+        panel.add(bgmSlider, gbc);
+
+        gbc.gridx = 0; gbc.gridy++; 
+        gbc.insets = new Insets(10, 0, 10, 15);
+        FantasyButton btnToggleSfx = new FantasyButton("EFFECTS: ON");
+        btnToggleSfx.setPreferredSize(new Dimension(200, 50));
+        btnToggleSfx.addActionListener(e -> {
+            SoundManager.sfxMuted = !SoundManager.sfxMuted;
+            btnToggleSfx.setText(SoundManager.sfxMuted ? "EFFECTS: MUTED" : "EFFECTS: ON");
+            btnToggleSfx.setForeground(SoundManager.sfxMuted ? Color.GRAY : new Color(224, 184, 114));
+        });
+        panel.add(btnToggleSfx, gbc);
+
+        gbc.gridx = 1; 
+        gbc.insets = new Insets(10, 15, 10, 0);
+        JSlider sfxSlider = createFantasySlider(SoundManager.sfxVolume);
+        sfxSlider.addChangeListener(e -> SoundManager.sfxVolume = sfxSlider.getValue());
+        panel.add(sfxSlider, gbc);
+
+        gbc.gridx = 0; gbc.gridy++; gbc.gridwidth = 2; 
+        gbc.insets = new Insets(30, 0, 10, 0);
+        FantasyButton btnBack = new FantasyButton("RETURN");
+        
+        btnBack.setPreferredSize(new Dimension(430, 50));
+        
+        btnBack.addActionListener(e -> cardLayout.show(mainContainer, "MENU"));
+        panel.add(btnBack, gbc);
+
+        return panel;
+    }
+
+    private JSlider createFantasySlider(int initialValue) {
+        JSlider slider = new JSlider(0, 100, initialValue);
+        slider.setOpaque(false);
+        slider.setFocusable(false); 
+        slider.setPreferredSize(new Dimension(200, 50)); 
+        slider.setUI(new BasicSliderUI(slider) {
+            
+            @Override
+            protected Dimension getThumbSize() {
+                return new Dimension(16, 16);
+            }
+
+            @Override
+            public void paintTrack(Graphics g) {
+                Graphics2D g2d = (Graphics2D) g;
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2d.setColor(new Color(15, 18, 22));
+                int trackY = trackRect.y + (trackRect.height / 2) - 4; 
+                g2d.fillRoundRect(trackRect.x, trackY, trackRect.width, 8, 8, 8);
+                
+                g2d.setColor(new Color(100, 200, 255)); 
+                int fillRight = thumbRect.x + (thumbRect.width / 2);
+                g2d.fillRoundRect(trackRect.x, trackY, fillRight - trackRect.x, 8, 8, 8);
+            }
+            
+            @Override
+            public void paintThumb(Graphics g) {
+                Graphics2D g2d = (Graphics2D) g;
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2d.setColor(new Color(224, 184, 114));
+                int thumbY = thumbRect.y + (thumbRect.height / 2) - 8; 
+                g2d.fillOval(thumbRect.x, thumbY, 16, 16);
+            }
+        });
+        return slider;
     }
 
     private JPanel createDifficultyPanel() {
@@ -234,8 +384,15 @@ public class Minesweeper extends JFrame {
         gbc.gridy++; gbc.weighty = 0; gbc.insets = new Insets(8, 15, 20, 15);
         FantasyButton menuBtn = new FantasyButton("MEDITATE (PAUSE)");
         menuBtn.addActionListener(e -> {
+            if (!board.isInGame()) {
+                board.killSession();
+                return;
+            }
+            
             board.pauseGame();
-            if (board.isInGame()) btnContinue.setEnabled(true);
+            btnContinue.setEnabled(true);
+            SoundManager.stopDefeatSound();
+            SoundManager.stopVictorySound();
             SoundManager.playBGM("menu_bgm.wav");
             cardLayout.show(mainContainer, "MENU");
         });
@@ -278,13 +435,13 @@ public class Minesweeper extends JFrame {
         panel.add(btnModeFilter, gbc);
 
         gbc.gridx = 1;
-        FantasyButton btnDiffFilter = new FantasyButton("DIFF: " + currentDiff[0].name());
+        FantasyButton btnDiffFilter = new FantasyButton("DIFFICULTY: " + currentDiff[0].name());
         btnDiffFilter.setPreferredSize(new Dimension(200, 40));
         btnDiffFilter.addActionListener(e -> {
             if (currentDiff[0] == GameConfig.Difficulty.EASY) currentDiff[0] = GameConfig.Difficulty.MEDIUM;
             else if (currentDiff[0] == GameConfig.Difficulty.MEDIUM) currentDiff[0] = GameConfig.Difficulty.HARD;
             else currentDiff[0] = GameConfig.Difficulty.EASY;
-            btnDiffFilter.setText("DIFF: " + currentDiff[0].name());
+            btnDiffFilter.setText("DIFFICULTY: " + currentDiff[0].name());
             displayArea.updateFilters(currentMode[0], currentDiff[0]);
         });
         panel.add(btnDiffFilter, gbc);
@@ -319,9 +476,6 @@ public class Minesweeper extends JFrame {
     }
 }
 
-// -----------------------------------------------------------
-// Komponen Status UI Bawah (Ikon)
-// -----------------------------------------------------------
 class StatusPanel extends JPanel {
     private JLabel lblFlags, lblTime, lblShield, lblScanner;
 
@@ -377,13 +531,9 @@ class StatusPanel extends JPanel {
     }
 }
 
-// -----------------------------------------------------------
-// Modifikasi JScrollPane Kustom (Arcane Theme)
-// -----------------------------------------------------------
 class FantasyScrollBarUI extends BasicScrollBarUI {
     private final Dimension emptyDim = new Dimension(0, 0);
 
-    // Hapus panah atas dan bawah secara brutal (dimensi 0)
     @Override
     protected JButton createDecreaseButton(int orientation) {
         return new JButton() { @Override public Dimension getPreferredSize() { return emptyDim; } };
@@ -394,14 +544,12 @@ class FantasyScrollBarUI extends BasicScrollBarUI {
         return new JButton() { @Override public Dimension getPreferredSize() { return emptyDim; } };
     }
 
-    // Ubah latar belakang jalur scroll menjadi sangat gelap (menyatu dengan background)
     @Override
     protected void paintTrack(Graphics g, JComponent c, Rectangle trackBounds) {
         g.setColor(new Color(15, 18, 22)); 
         g.fillRect(trackBounds.x, trackBounds.y, trackBounds.width, trackBounds.height);
     }
 
-    // Lukis pegangan scroll menjadi pil Cyan yang bercahaya saat disentuh
     @Override
     protected void paintThumb(Graphics g, JComponent c, Rectangle thumbBounds) {
         if (thumbBounds.isEmpty() || !scrollbar.isEnabled()) return;
@@ -409,10 +557,9 @@ class FantasyScrollBarUI extends BasicScrollBarUI {
         Graphics2D g2d = (Graphics2D) g.create();
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        if (isThumbRollover()) g2d.setColor(new Color(180, 230, 255)); // Hover
-        else g2d.setColor(new Color(100, 200, 255)); // Normal
+        if (isThumbRollover()) g2d.setColor(new Color(180, 230, 255)); 
+        else g2d.setColor(new Color(100, 200, 255)); 
 
-        // Membuat efek pil (rounded border) dengan margin 2 piksel di sisi kiri dan kanan
         g2d.fillRoundRect(thumbBounds.x + 2, thumbBounds.y + 2, thumbBounds.width - 4, thumbBounds.height - 4, 8, 8);
         g2d.dispose();
     }
@@ -459,9 +606,8 @@ class LeaderboardDisplay extends JPanel {
         scroll.getViewport().setBackground(new Color(20, 23, 28));
         scroll.setBorder(BorderFactory.createLineBorder(new Color(100, 200, 255), 1));
         
-        // --- INJEKSI SCROLLBAR KUSTOM ---
         scroll.getVerticalScrollBar().setUI(new FantasyScrollBarUI());
-        scroll.getVerticalScrollBar().setPreferredSize(new Dimension(10, 0)); // Ketebalan 10 pixel
+        scroll.getVerticalScrollBar().setPreferredSize(new Dimension(10, 0)); 
         
         add(scroll, BorderLayout.CENTER);
         loadData();
@@ -484,7 +630,6 @@ class LeaderboardDisplay extends JPanel {
 }
 
 class MenuParticlePanel extends JPanel {
-
     private final List<MenuParticle> particles = new ArrayList<>();
     private final List<MenuOrb> orbs = new ArrayList<>();
     private final javax.swing.Timer animTimer;
@@ -496,24 +641,13 @@ class MenuParticlePanel extends JPanel {
         setOpaque(true);
 
         URL bgUrl = getClass().getResource("/resources/bg_fantasy.png");
-        if (bgUrl != null) {
-            bgImage = new ImageIcon(bgUrl).getImage();
-        }
+        if (bgUrl != null) bgImage = new ImageIcon(bgUrl).getImage();
 
         Random rand = new Random();
+        for (int i = 0; i < 100; i++) particles.add(new MenuParticle(rand.nextInt(2000), rand.nextInt(1200), rand));
+        for (int i = 0; i < 5; i++) orbs.add(new MenuOrb(rand.nextInt(1600) + 100, rand.nextInt(900) + 100, rand));
 
-        for (int i = 0; i < 100; i++) {
-            particles.add(new MenuParticle(rand.nextInt(2000), rand.nextInt(1200), rand));
-        }
-
-        for (int i = 0; i < 5; i++) {
-            orbs.add(new MenuOrb(rand.nextInt(1600) + 100, rand.nextInt(900) + 100, rand));
-        }
-
-        animTimer = new javax.swing.Timer(16, e -> {
-            updateAll();
-            repaint();
-        });
+        animTimer = new javax.swing.Timer(16, e -> { updateAll(); repaint(); });
         animTimer.start();
     }
 
@@ -545,7 +679,6 @@ class MenuParticlePanel extends JPanel {
     private void drawDecorLines(Graphics2D g2d) {
         int cx = getWidth() / 2;
         int cy = getHeight() / 2 - 120;
-
         float alpha = (float)(0.25 + 0.15 * Math.sin(titleGlowAngle));
         g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
         g2d.setColor(new Color(224, 184, 114));
@@ -554,10 +687,8 @@ class MenuParticlePanel extends JPanel {
         int gap = 20;
         g2d.fillRect(cx - lineW - gap, cy, lineW, 1);
         g2d.fillRect(cx + gap, cy, lineW, 1);
-
         g2d.fillOval(cx - lineW - gap - 3, cy - 2, 5, 5);
         g2d.fillOval(cx + gap + lineW - 2, cy - 2, 5, 5);
-
         g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f));
     }
 }
@@ -568,13 +699,11 @@ class MenuParticle {
     Color color;
 
     public MenuParticle(double x, double y, Random rand) {
-        this.x = x;
-        this.y = y;
+        this.x = x; this.y = y;
         this.speed = rand.nextDouble() * 1.2 + 0.4;
         this.size = rand.nextDouble() * 3.0 + 1.0;
         this.pulseAngle = (float)(rand.nextDouble() * Math.PI * 2);
         this.pulseSpeed = (float)(rand.nextDouble() * 0.03 + 0.015);
-
         int pick = rand.nextInt(3);
         if (pick == 0)      this.color = new Color(224, 184, 114);
         else if (pick == 1) this.color = new Color(100, 200, 255);
@@ -582,15 +711,10 @@ class MenuParticle {
     }
 
     public void update(int w, int h) {
-        y -= speed;
-        pulseAngle += pulseSpeed;
+        y -= speed; pulseAngle += pulseSpeed;
         alpha = (float)(0.45 + 0.35 * Math.sin(pulseAngle));
-        if (alpha > 1f) alpha = 1f;
-        if (alpha < 0f) alpha = 0f;
-        if (y < -10) {
-            y = h + 10;
-            x = new Random().nextInt(w);
-        }
+        if (alpha > 1f) alpha = 1f; if (alpha < 0f) alpha = 0f;
+        if (y < -10) { y = h + 10; x = new Random().nextInt(w); }
     }
 
     public void draw(Graphics2D g2d) {
@@ -607,14 +731,12 @@ class MenuOrb {
     Color color;
 
     public MenuOrb(double x, double y, Random rand) {
-        this.x = x;
-        this.y = y;
+        this.x = x; this.y = y;
         this.radius = rand.nextDouble() * 80 + 60;
         this.vx = (rand.nextDouble() - 0.5) * 0.4;
         this.vy = (rand.nextDouble() - 0.5) * 0.3;
         this.pulseAngle = (float)(rand.nextDouble() * Math.PI * 2);
         this.pulseSpeed = (float)(rand.nextDouble() * 0.015 + 0.008);
-
         int pick = rand.nextInt(3);
         if (pick == 0)      this.color = new Color(224, 184, 114);
         else if (pick == 1) this.color = new Color(40, 80, 160);
@@ -622,10 +744,7 @@ class MenuOrb {
     }
 
     public void update(int w, int h) {
-        x += vx;
-        y += vy;
-        pulseAngle += pulseSpeed;
-
+        x += vx; y += vy; pulseAngle += pulseSpeed;
         if (x - radius < 0 || x + radius > w) vx = -vx;
         if (y - radius < 0 || y + radius > h) vy = -vy;
     }
@@ -645,9 +764,7 @@ class FantasyButton extends JButton {
     private final Color clickColor = new Color(20, 23, 28);
     private final Color textColor = new Color(224, 184, 114);
 
-    public FantasyButton(String text) {
-        this(text, null);
-    }
+    public FantasyButton(String text) { this(text, null); }
 
     public FantasyButton(String text, String iconName) {
         super(text);
@@ -673,14 +790,11 @@ class FantasyButton extends JButton {
                     setIconTextGap(15);
                     setHorizontalAlignment(SwingConstants.LEFT);
                 }
-            } catch (Exception e) {
-                System.err.println("[UI ERROR] Gagal memuat ikon: " + iconName);
-            }
+            } catch (Exception e) {}
         }
 
         addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
+            @Override public void mouseEntered(MouseEvent e) {
                 if (isEnabled()) {
                     setBackground(hoverColor);
                     setBorder(BorderFactory.createCompoundBorder(
@@ -689,8 +803,7 @@ class FantasyButton extends JButton {
                     ));
                 }
             }
-            @Override
-            public void mouseExited(MouseEvent e) {
+            @Override public void mouseExited(MouseEvent e) {
                 if (isEnabled()) {
                     setBackground(idleColor);
                     setBorder(BorderFactory.createCompoundBorder(
@@ -699,15 +812,10 @@ class FantasyButton extends JButton {
                     ));
                 }
             }
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (isEnabled()) {
-                    setBackground(clickColor);
-                    SoundManager.playSound("click.wav");
-                }
+            @Override public void mousePressed(MouseEvent e) {
+                if (isEnabled()) { setBackground(clickColor); SoundManager.playSound("click.wav"); }
             }
-            @Override
-            public void mouseReleased(MouseEvent e) {
+            @Override public void mouseReleased(MouseEvent e) {
                 if (isEnabled()) setBackground(hoverColor);
             }
         });
@@ -735,98 +843,86 @@ class ScoreManager {
     private static final String FILE_PATH = "leaderboard.txt";
 
     public static void saveScore(GameConfig.Mode mode, GameConfig.Difficulty diff, String name, int time) {
-        try (FileWriter fw = new FileWriter(FILE_PATH, true);
-             PrintWriter pw = new PrintWriter(fw)) {
+        try (FileWriter fw = new FileWriter(FILE_PATH, true); PrintWriter pw = new PrintWriter(fw)) {
             pw.println(mode.name() + "," + diff.name() + "," + name + "," + time);
-        } catch (Exception e) {
-            System.err.println("[ERROR] Failed to save score: " + e.getMessage());
-        }
+        } catch (Exception e) {}
     }
 
     public static List<PlayerRecord> getScores(GameConfig.Mode mode, GameConfig.Difficulty diff) {
         List<PlayerRecord> records = new ArrayList<>();
         File file = new File(FILE_PATH);
         if (!file.exists()) return records;
-
         try (Scanner scanner = new Scanner(file)) {
             while (scanner.hasNextLine()) {
-                String line = scanner.nextLine();
-                String[] parts = line.split(",");
-                if (parts.length == 4) {
-                    if (parts[0].equals(mode.name()) && parts[1].equals(diff.name())) {
-                        records.add(new PlayerRecord(parts[2], Integer.parseInt(parts[3])));
-                    }
+                String[] parts = scanner.nextLine().split(",");
+                if (parts.length == 4 && parts[0].equals(mode.name()) && parts[1].equals(diff.name())) {
+                    records.add(new PlayerRecord(parts[2], Integer.parseInt(parts[3])));
                 }
             }
-        } catch (Exception e) {
-            System.err.println("[ERROR] Failed to read scores: " + e.getMessage());
-        }
+        } catch (Exception e) {}
         records.sort((a, b) -> Integer.compare(a.time, b.time));
         return records;
     }
 }
 
 class PlayerRecord {
-    String name;
-    int time;
-    public PlayerRecord(String name, int time) { 
-        this.name = name; 
-        this.time = time; 
-    }
+    String name; int time;
+    public PlayerRecord(String name, int time) { this.name = name; this.time = time; }
 }
 
 class SoundManager {
     private static Clip bgmClip;
     private static Clip victoryClip; 
+    private static Clip defeatClip;
     private static long lastRevealTime = 0;
 
-    public static void playSound(String fileName) {
-        playSound(fileName, 0f);
-    }
+    public static int bgmVolume = 100;
+    public static int sfxVolume = 100;
+    public static boolean bgmMuted = false;
+    public static boolean sfxMuted = false;
 
-    public static void playSound(String fileName, float volumeOffset) {
+    public static void playSound(String fileName) {
+        if (sfxMuted || sfxVolume == 0) return;
+
         try {
             java.net.URL url = SoundManager.class.getResource("/resources/" + fileName);
-
             if (url == null) {
                 java.io.File audioFile = new java.io.File("src/resources/" + fileName);
-                if (!audioFile.exists()) {
-                    System.err.println("[AUDIO MISSING] System could not find file: " + audioFile.getAbsolutePath());
-                    return;
-                }
+                if (!audioFile.exists()) return;
                 url = audioFile.toURI().toURL();
             }
 
             AudioInputStream audioIn = AudioSystem.getAudioInputStream(url);
             Clip clip = AudioSystem.getClip();
+            
+            clip.addLineListener(event -> {
+                if (event.getType() == javax.sound.sampled.LineEvent.Type.STOP) clip.close();
+            });
+
             clip.open(audioIn);
             
             if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
                 FloatControl gainControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-                float max = gainControl.getMaximum();
-                float min = gainControl.getMinimum();
-                if (volumeOffset > max) volumeOffset = max;
-                if (volumeOffset < min) volumeOffset = min;
-                gainControl.setValue(volumeOffset);
+                float decibels = (float) (Math.log10(sfxVolume / 100.0) * 20.0);
+                gainControl.setValue(decibels);
             }
             
             if (fileName.equals("victory.wav")) {
                 if (victoryClip != null && victoryClip.isRunning()) victoryClip.stop();
                 victoryClip = clip;
+            } else if (fileName.equals("defeat.wav")) {
+                if (defeatClip != null && defeatClip.isRunning()) defeatClip.stop();
+                defeatClip = clip;
             }
 
             clip.start();
-        } catch (javax.sound.sampled.UnsupportedAudioFileException e) {
-            System.err.println("[FORMAT ERROR] File '" + fileName + "' rejected by JVM. Required format: 16-bit PCM WAV.");
-        } catch (Exception e) {
-            System.err.println("[SYSTEM ERROR] Failed to play '" + fileName + "': " + e.getMessage());
-        }
+        } catch (Exception e) {}
     }
 
     public static void playRevealSound() {
         long now = System.currentTimeMillis();
         if (now - lastRevealTime > 60) {
-            playSound("reveal.wav", 8.0f);
+            playSound("reveal.wav");
             lastRevealTime = now;
         }
     }
@@ -836,36 +932,41 @@ class SoundManager {
             if (bgmClip != null && bgmClip.isRunning()) bgmClip.stop();
 
             java.net.URL url = SoundManager.class.getResource("/resources/" + fileName);
-
             if (url == null) {
                 java.io.File audioFile = new java.io.File("src/resources/" + fileName);
-                if (!audioFile.exists()) {
-                    System.err.println("[BGM MISSING] System could not find BGM: " + audioFile.getAbsolutePath());
-                    return;
-                }
+                if (!audioFile.exists()) return;
                 url = audioFile.toURI().toURL();
             }
 
             AudioInputStream audioIn = AudioSystem.getAudioInputStream(url);
             bgmClip = AudioSystem.getClip();
             bgmClip.open(audioIn);
+            updateBGMVolume();
             bgmClip.loop(Clip.LOOP_CONTINUOUSLY);
-        } catch (javax.sound.sampled.UnsupportedAudioFileException e) {
-            System.err.println("[BGM FORMAT ERROR] File '" + fileName + "' rejected by JVM. Required format: 16-bit PCM WAV.");
-        } catch (Exception e) {
-            System.err.println("[BGM SYSTEM ERROR] Failed to play BGM '" + fileName + "': " + e.getMessage());
+        } catch (Exception e) {}
+    }
+
+    public static void updateBGMVolume() {
+        if (bgmClip != null && bgmClip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
+            FloatControl gainControl = (FloatControl) bgmClip.getControl(FloatControl.Type.MASTER_GAIN);
+            if (bgmMuted || bgmVolume == 0) {
+                gainControl.setValue(gainControl.getMinimum());
+            } else {
+                float decibels = (float) (Math.log10(bgmVolume / 100.0) * 20.0);
+                gainControl.setValue(decibels);
+            }
         }
     }
 
     public static void stopBGM() {
-        if (bgmClip != null && bgmClip.isRunning()) {
-            bgmClip.stop();
-        }
+        if (bgmClip != null && bgmClip.isRunning()) bgmClip.stop();
     }
     
     public static void stopVictorySound() {
-        if (victoryClip != null && victoryClip.isRunning()) {
-            victoryClip.stop();
-        }
+        if (victoryClip != null && victoryClip.isRunning()) victoryClip.stop();
+    }
+
+    public static void stopDefeatSound() {
+        if (defeatClip != null && defeatClip.isRunning()) defeatClip.stop();
     }
 }

@@ -35,12 +35,13 @@ import javax.swing.text.PlainDocument;
 
 public class Board extends JPanel {
     private boolean isFirstClick;
-    private final int NUM_IMAGES = 13;
+    private final int NUM_IMAGES = 14; 
 
     private final int DRAW_MINE = 9;
     private final int DRAW_COVER = 10;
     private final int DRAW_MARK = 11;
     private final int DRAW_WRONG_MARK = 12;
+    private final int DRAW_MYSTERY = 13; 
 
     private Cell[][] grid;
     private boolean inGame;
@@ -53,7 +54,7 @@ public class Board extends JPanel {
     private int timeElapsed;
     private Timer gameTimer;
     private Timer vfxTimer;
-    private final StatusPanel statusbar; // Menggunakan panel kustom berikon
+    private final StatusPanel statusbar;
 
     private int offsetX = 0;
     private int offsetY = 0;
@@ -86,7 +87,6 @@ public class Board extends JPanel {
     private boolean nextActionIsRestart = true;
     private Runnable onExitToMenu;
 
-    // Komponen UI Akhir Permainan
     private FantasyButton btnRetry, btnExitMenu, btnYes, btnNo, btnSubmit;
     private JTextField tfName;
 
@@ -106,9 +106,8 @@ public class Board extends JPanel {
     private void initBoard() {
         setFocusable(true);
         setBackground(new Color(15, 18, 22));
-        setLayout(null); // Memungkinkan penempatan UI Buttons secara absolut
+        setLayout(null); 
 
-        // Inisialisasi UI Tombol Akhir Permainan
         btnRetry = new FantasyButton("PLAY AGAIN");
         btnExitMenu = new FantasyButton("EXIT TO MENU");
         btnYes = new FantasyButton("YES");
@@ -126,7 +125,6 @@ public class Board extends JPanel {
             BorderFactory.createEmptyBorder(5, 10, 5, 10)
         ));
         
-        // Batasi input nama maksimal 12 karakter untuk mencegah layout rusak
         tfName.setDocument(new PlainDocument() {
             @Override
             public void insertString(int offs, String str, AttributeSet a) throws BadLocationException {
@@ -138,7 +136,6 @@ public class Board extends JPanel {
         add(btnRetry); add(btnExitMenu); add(btnYes); add(btnNo); add(tfName); add(btnSubmit);
         hideAllUI();
 
-        // Routing Aksi Tombol
         btnRetry.addActionListener(e -> { nextActionIsRestart = true; checkSavePhase(); });
         btnExitMenu.addActionListener(e -> { nextActionIsRestart = false; checkSavePhase(); });
         btnYes.addActionListener(e -> { endPhase = EndGamePhase.INPUT_NAME; updateUIState(); });
@@ -213,6 +210,14 @@ public class Board extends JPanel {
             if (onExitToMenu != null) onExitToMenu.run();
         }
     }
+    
+    public void killSession() {
+        inGame = false;
+        gameTimer.stop();
+        endPhase = EndGamePhase.NONE;
+        hideAllUI();
+        if (onExitToMenu != null) onExitToMenu.run();
+    }
 
     @Override
     public void doLayout() {
@@ -222,15 +227,14 @@ public class Board extends JPanel {
         int cx = getWidth() / 2;
         int cy = getHeight() / 2;
         
-        // Memosisikan komponen UI tepat di tengah hamparan popup kustom
-        btnRetry.setBounds(cx - 150, cy + 15, 300, 45);
-        btnExitMenu.setBounds(cx - 150, cy + 75, 300, 45);
+        btnRetry.setBounds(cx - 150, cy + 25, 300, 45);
+        btnExitMenu.setBounds(cx - 150, cy + 85, 300, 45);
         
-        btnYes.setBounds(cx - 155, cy + 50, 140, 45);
-        btnNo.setBounds(cx + 15, cy + 50, 140, 45);
+        btnYes.setBounds(cx - 155, cy + 85, 140, 45);
+        btnNo.setBounds(cx + 15, cy + 85, 140, 45);
         
-        tfName.setBounds(cx - 150, cy + 15, 300, 45);
-        btnSubmit.setBounds(cx - 150, cy + 75, 300, 45);
+        tfName.setBounds(cx - 150, cy + 25, 300, 45);
+        btnSubmit.setBounds(cx - 150, cy + 85, 300, 45);
     }
 
     private void initParticles() {
@@ -366,7 +370,8 @@ public class Board extends JPanel {
         
         endPhase = EndGamePhase.NONE;
         hideAllUI();
-        SoundManager.stopVictorySound(); // Membunuh sisa gema suara Victory saat di-restart
+        SoundManager.stopVictorySound();
+        SoundManager.stopDefeatSound();
 
         grid = new Cell[difficulty.rows][difficulty.cols];
         for (int r = 0; r < difficulty.rows; r++) {
@@ -395,17 +400,21 @@ public class Board extends JPanel {
     private void generateMines(int startRow, int startCol) {
         var random = new Random();
         int minesPlaced = 0;
+        int attempts = 0; 
 
-        while (minesPlaced < difficulty.mines) {
+        while (minesPlaced < difficulty.mines && attempts < 5000) {
             int r = random.nextInt(difficulty.rows);
             int c = random.nextInt(difficulty.cols);
+            attempts++;
 
             boolean isSafeZone = false;
-            for (int i = startRow - 1; i <= startRow + 1; i++) {
-                for (int j = startCol - 1; j <= startCol + 1; j++) {
-                    if (r == i && c == j) {
-                        isSafeZone = true;
-                        break;
+            if (attempts < 2000) {
+                for (int i = startRow - 1; i <= startRow + 1; i++) {
+                    for (int j = startCol - 1; j <= startCol + 1; j++) {
+                        if (r == i && c == j) {
+                            isSafeZone = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -425,6 +434,20 @@ public class Board extends JPanel {
                         if (neighbor.isMine()) count++;
                     }
                     cell.setAdjacentMines(count);
+                }
+            }
+        }
+        
+        if (mode == GameConfig.Mode.FANTASY && (difficulty == GameConfig.Difficulty.MEDIUM || difficulty == GameConfig.Difficulty.HARD)) {
+            int curseChance = (difficulty == GameConfig.Difficulty.HARD) ? 15 : 10;
+            for (int r = 0; r < difficulty.rows; r++) {
+                for (int c = 0; c < difficulty.cols; c++) {
+                    Cell cell = grid[r][c];
+                    if (!cell.isMine() && cell.getAdjacentMines() > 0) {
+                        if (random.nextInt(100) < curseChance) {
+                            cell.setObscured(true);
+                        }
+                    }
                 }
             }
         }
@@ -461,6 +484,10 @@ public class Board extends JPanel {
 
         if (cell.getAdjacentMines() == 0) {
             scheduleFloodFill(cell);
+            // Validasi asinkron yang mempertahankan pencegahan bug "stuck pada cell 0"
+            if (floodQueue.isEmpty()) {
+                checkVictory();
+            }
         } else {
             checkVictory();
         }
@@ -532,19 +559,27 @@ public class Board extends JPanel {
         else if (type == MagicEffect.Type.CELL_RIPPLE) SoundManager.playRevealSound();
     }
 
+    // STRICT WIN CONDITION: Mengembalikan algoritma kemenangan ke logika murni (Classic Minesweeper)
     private void checkVictory() {
+        if (!inGame) return;
+
         int unrevealedSafeCells = 0;
 
         for (int r = 0; r < difficulty.rows; r++) {
             for (int c = 0; c < difficulty.cols; c++) {
                 Cell cell = grid[r][c];
+                
+                // Menghitung mutlak jumlah kotak area aman yang masih tertutup
                 if (!cell.isMine() && !cell.isRevealed()) {
                     unrevealedSafeCells++;
                 }
             }
         }
 
-        if (inGame && unrevealedSafeCells == 0) endGame(true);
+        // Kemenangan hanya sah di mata mesin jika 100% blok tanpa ranjau telah berhasil dieksekusi (dibuka)
+        if (unrevealedSafeCells == 0) {
+            endGame(true);
+        }
     }
 
     private void endGame(boolean won) {
@@ -565,6 +600,8 @@ public class Board extends JPanel {
             triggerVFX(difficulty.cols * 3 / 4, difficulty.rows / 4,     MagicEffect.Type.VICTORY);
             triggerVFX(difficulty.cols / 4,     difficulty.rows * 3 / 4, MagicEffect.Type.VICTORY);
             triggerVFX(difficulty.cols * 3 / 4, difficulty.rows * 3 / 4, MagicEffect.Type.VICTORY);
+        } else {
+            SoundManager.playSound("defeat.wav");
         }
     }
 
@@ -614,12 +651,16 @@ public class Board extends JPanel {
 
                 if (inGame) {
                     if (cell.isFlagged()) imageIndex = DRAW_MARK;
-                    else if (cell.isRevealed()) imageIndex = cell.getAdjacentMines();
+                    else if (cell.isRevealed()) {
+                        imageIndex = cell.isObscured() ? DRAW_MYSTERY : cell.getAdjacentMines();
+                    }
                 } else {
                     if (cell.isMine()) imageIndex = cell.isFlagged() ? DRAW_MARK : DRAW_MINE;
                     else {
                         if (cell.isFlagged()) imageIndex = DRAW_WRONG_MARK;
-                        else if (cell.isRevealed()) imageIndex = cell.getAdjacentMines();
+                        else if (cell.isRevealed()) {
+                            imageIndex = cell.isObscured() ? DRAW_MYSTERY : cell.getAdjacentMines();
+                        }
                         else imageIndex = DRAW_COVER;
                     }
                 }
@@ -695,7 +736,7 @@ public class Board extends JPanel {
             g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, panelAlpha));
 
             int panelW = 480;
-            int panelH = 260;
+            int panelH = 320; 
             int px = (getWidth() - panelW) / 2;
             int py = (getHeight() - panelH) / 2;
 
@@ -716,26 +757,26 @@ public class Board extends JPanel {
             
             g2d.setFont(new Font("Serif", Font.BOLD, 34));
             FontMetrics fm = g2d.getFontMetrics();
-            g2d.drawString(title, px + (panelW - fm.stringWidth(title))/2, py + 70);
+            g2d.drawString(title, px + (panelW - fm.stringWidth(title))/2, py + 80);
 
             g2d.setFont(new Font("Segoe UI", Font.PLAIN, 16));
             g2d.setColor(Color.LIGHT_GRAY);
             fm = g2d.getFontMetrics();
-            g2d.drawString(subtitle, px + (panelW - fm.stringWidth(subtitle))/2, py + 105);
+            g2d.drawString(subtitle, px + (panelW - fm.stringWidth(subtitle))/2, py + 120);
 
             if (endPhase == EndGamePhase.PROMPT_SAVE) {
                 String prompt = "Save your record to Hall of Fame?";
                 g2d.setFont(new Font("Consolas", Font.BOLD, 20));
                 g2d.setColor(new Color(100, 200, 255));
                 fm = g2d.getFontMetrics();
-                g2d.drawString(prompt, px + (panelW - fm.stringWidth(prompt))/2, py + 160);
+                g2d.drawString(prompt, px + (panelW - fm.stringWidth(prompt))/2, py + 180);
                 
             } else if (endPhase == EndGamePhase.INPUT_NAME) {
                 String prompt = "ENTER NAME:";
                 g2d.setFont(new Font("Consolas", Font.BOLD, 20));
                 g2d.setColor(new Color(100, 200, 255));
                 fm = g2d.getFontMetrics();
-                g2d.drawString(prompt, px + (panelW - fm.stringWidth(prompt))/2, py + 140);
+                g2d.drawString(prompt, px + (panelW - fm.stringWidth(prompt))/2, py + 180);
             }
         }
 
@@ -824,7 +865,7 @@ class FloodNode {
 
 class Cell {
     private int row, col;
-    private boolean isMine, isRevealed, isFlagged;
+    private boolean isMine, isRevealed, isFlagged, isObscured; 
     private int adjacentMines;
     private List<Cell> neighbors; 
 
@@ -834,6 +875,7 @@ class Cell {
         this.isMine = false; 
         this.isRevealed = false; 
         this.isFlagged = false; 
+        this.isObscured = false; 
         this.adjacentMines = 0; 
         this.neighbors = new ArrayList<>();
     }
@@ -846,6 +888,8 @@ class Cell {
     public void setRevealed(boolean revealed) { isRevealed = revealed; }
     public boolean isFlagged() { return isFlagged; }
     public void setFlagged(boolean flagged) { isFlagged = flagged; }
+    public boolean isObscured() { return isObscured; } 
+    public void setObscured(boolean obscured) { isObscured = obscured; } 
     public int getAdjacentMines() { return adjacentMines; }
     public void setAdjacentMines(int count) { this.adjacentMines = count; }
     public void addNeighbor(Cell neighbor) { this.neighbors.add(neighbor); }
